@@ -1,0 +1,84 @@
+====================================================================
+author	:王勃博
+time		:2017-11-03 17:40
+modify	:2018-10-10 09:37
+e-mail	:wangbobochn@gmail.com
+from		:YunnanUniversity
+=====================================================================
+
+Summary:
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+This folder contains scripts such as "installDNSClientAndSetting.sh" "uninstallDNSClient.sh" 
+"setup-dnsIp-client.sh" "setup-dnsIp-server.sh" and folder named myDnsServer.
+If you want to establish a service to provide domain name resolution service, I'm sure that 
+you need these scripts.
+
+The principle of this application is that your client computer upload your IP address to your 
+DNS server every 120 seconds (you can change this time interval from file at 
+"/opt/dnsServer/myDnsServer/dnsIp/conf/ipMap.conf",change "sleepTime=120" to whatever you want),
+and your DNS server bind your client computer IP with your host name.
+If you want to shield some ip or some types of ip.You can modify file "ipMap.conf" on your server, 
+add "shieldIp=" field like "shieldIp=186.234.54.123/255.255.0.0",then the IP address starting 
+with "186.234" will be shielded.And,what is important is that you can add 100 IP to be blocked.
+When you set your client compuer's DNS server address as your DNS server's IPv4,you can visit 
+your client computer any time, any place, as long as both your server and your client computer 
+connected the Internet.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+Notice:
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+If you will use these scripts to establish a service,please do not modify the folder hierarchy 
+and the files name!
+
+Method:
+Install:You should enter folder dnsServer,then run command:
+$sudo ./installDNSClientAndSetting.sh [0|1] [host name] [IPv4] [user name] [domain name]
+or
+#./installDNSClientAndSetting.sh [0|1] [host name] [IPv4] [user name] [domain name]
+e.g.
+$sudo ./installDNSClientAndSetting.sh 0 tianlongbabu 25.36.269.217 meichaofeng luoyufeng.school.com
+
+There are five parameters above.That five parameters are all necessary!
+I need to explain the first parameter.This parameter can be chosen between 0 and 1.If you want to 
+establish a server,you should set it 1,if you want to configure for a client,you should set it 0.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+Use:
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+When you established both server and tow client computeres,you can login from one to anther  
+computer by ssh,telnet and so on. e.g.  "$ssh meichaofeng@tianlongbabu.luoyufeng.school.com"
+You can do the same that open a web site in browser e.g. 
+"http://tianlongbabu.luoyufeng.school.com/index.html",if you have create a web site on your 
+computer,you can do that.
+You can also use command 
+$sudo restart.ServerDNSIpReceive [start|stop|restart]
+$sudo restart.ClientDNSIpUpload [start|stop|restart]
+to start,stop or restart your server computer or client computer.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+Unistall:
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+You can use command "$sudo /opt/dnsServer/uninstallDNSClient.sh" to remove your server or 
+client computer.The command above needn't any parameter.
+
+You can also reinstall this tool like install the tools first.The script will check is there 
+these tools installed in the inspection system, If it had installed,script will remove these
+tools first and install these tools then.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+Finally:
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Good luck with your use!
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+

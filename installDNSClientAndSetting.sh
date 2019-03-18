@@ -1,0 +1,323 @@
+#!/bin/bash
+
+#get local host name,server ip,user name and domain name
+flag=$1
+hostName=$2
+serverIp=$3
+userName=$4
+domainName=$5
+
+if [[ $# -lt 5 ]]
+then
+	echo "For use this setup tool,you should send five parameteres flag,hostName,serverIp,userName and domain name!"
+	echo "For the first parameter if you are server,you should send 1,otherwise,you should send 0."
+	exit
+fi
+
+currentPath=$( pwd )
+rootPath="/opt/dnsServer"
+#Check whether it has been installed.
+if [[ -e $rootPath ]]
+then
+#remove first
+	sudo $rootPath/uninstallDNSClient.sh
+	cd $currentPath
+fi
+
+
+#get the version and type of OS
+if grep -Eqii "CentOS" /etc/issue || grep -Eq "CentOS" /etc/*-release; then
+#CentOS
+	packageManager='yum'
+elif grep -Eqi "Red Hat Enterprise Linux Server" /etc/issue || grep -Eq "Red Hat Enterprise Linux Server" /etc/*-release; then
+#RHEL
+	packageManager='yum'
+elif grep -Eqi "Aliyun" /etc/issue || grep -Eq "Aliyun" /etc/*-release; then
+#Aliyun
+	packageManager='yum'
+elif grep -Eqi "Fedora" /etc/issue || grep -Eq "Fedora" /etc/*-release; then
+#Fedora
+	packageManager='yum'
+elif grep -Eqi "Debian" /etc/issue || grep -Eq "Debian" /etc/*-release; then
+#Debian
+	packageManager='apt-get'
+elif grep -Eqi "Ubuntu" /etc/issue || grep -Eq "Ubuntu" /etc/*-release; then
+#Ubuntu
+	packageManager='apt-get'
+elif grep -Eqi "Raspbian" /etc/issue || grep -Eq "Raspbian" /etc/*-release; then
+#Raspbian
+	packageManager='apt-get'
+else
+#unknow
+	echo "unknow version of OS!"
+	exit
+fi
+
+packageManagerInstallCommand=$packageManager"-y install --skip-broken "
+
+#install some tools
+sudo $packageManagerInstallCommand grep sed awk nscd 
+sudo $packageManagerInstallCommand grep sed awk nscd
+
+
+
+#create the name of rev zone file
+rev_zone_fileName=$(echo $serverIp | awk -F"." '{print $1"."$2"."$3}').zone
+original_rev_zone_fileName=$(echo $serverIp | awk -F"." '{print $3"."$2"."$1}').in-addr.arpa
+
+
+relativePath="myDnsServer/dnsIp"
+########################################################################################
+#Here we will create   and   file automatically
+########################################################################################
+workPath="./"$relativePath
+#create domainName.zone file
+cat > $workPath/"$domainName".zone << _EOF_
+\$TTL 1D
+@       IN  SOA @ rname.invalid. (
+            2015022001      ;serial number
+            1D              ;refresh slave
+            1H              ;retry query
+            1W              ;expire
+            3H  )           ;mininum TTL
+
+                 NS      @
+                 A       $serverIp
+www              A       $serverIp
+ftp              CNAME   www
+main             CNAME   www
+_EOF_
+#create echo analysis file
+serverIpSuffix=${serverIp##*.}
+cat > $workPath/"${serverIp%.*}".zone << _EOF_
+\$TTL 1D
+@       IN  SOA @ rname.invalid. (
+            2015022001      ;serial number
+            1D              ;refresh slave
+            1H              ;retry query
+            1W              ;expire
+            3H  )           ;mininum TTL
+
+          NS      @
+          A       $serverIp
+          AAAA    ::1
+        PTR       $domainName.
+$serverIpSuffix     PTR       $hostName.$domainName.
+$serverIpSuffix     PTR       www.$domainName.
+$serverIpSuffix     PTR       ftp.$domainName.
+$serverIpSuffix     PTR       mail.$domainName.
+_EOF_
+########################################################################################
+
+sudo mkdir -p $rootPath
+sudo cp -r ./* $rootPath
+sudo chown -R $userName:$userName ${rootPath}*
+sudo chmod 775 -R ${rootPath}
+cd $rootPath
+#remove original folder
+sudo rm -rf $currentPath
+
+#modify nds config file
+dns_resolv_conf="/etc/resolv.conf"
+dns_named_conf="/etc/named.conf"
+dns_named_rfc="/etc/named.rfc1912.zones"
+dns_dirctory="/var/named"
+dns_chroot_path="/var/named/chroot"
+dns_local_path="$rootPath/$relativePath"
+
+#server config file path
+ipMap_path="$dns_local_path/conf/ipMap.conf"
+
+#modify server config file
+sudo sed -i 's#hostName=.*$#hostName='$hostName'#g' $ipMap_path
+sudo sed -i 's#serverIp=.*$#serverIp='$serverIp'#g' $ipMap_path
+sudo sed -i 's#domainNameSuffix=.*$#domainNameSuffix=\.'$domainName'#g' $ipMap_path
+sudo sed -i 's#dnsConfigFile_com=.*$#dnsConfigFile_com='$dns_dirctory/$domainName.zone'#g' $ipMap_path
+sudo sed -i 's#dnsConfigFile_com_rev=.*$#dnsConfigFile_com_rev='$dns_dirctory/$rev_zone_fileName'#g' $ipMap_path
+sudo sed -i 's#dnsConfigFile_com_chroot=.*$#dnsConfigFile_com_chroot='$dns_chroot_path$dns_dirctory/$domainName.zone'#g' $ipMap_path
+sudo sed -i 's#dnsConfigFile_com_rev_chroot=.*$#dnsConfigFile_com_rev_chroot='$dns_chroot_path$dns_dirctory/$rev_zone_fileName'#g' $ipMap_path
+
+sudo cp /etc/rc.local /etc/rc.local.backup
+sudo cp /etc/rc.d/rc.local /etc/rc.d/rc.local.backup
+
+#if you are general user,this script will excute fellow code
+if [[ $flag -eq 0 ]]
+then
+	sudo cp $dns_resolv_conf ${dns_resolv_conf}.backup
+#insert 'nameserver 45.76.219.247' to /etc/resolv.conf at first line
+#	sudo sed -i 2'inameserver '$serverIp $dns_resolv_conf
+	sudo echo '# Generated by NetworkManager' > $dns_resolv_conf
+	sudo echo "nameserver $serverIp" >> $dns_resolv_conf
+	sudo echo "nameserver 114.114.114.114" >> $dns_resolv_conf
+	sudo echo "nameserver 114.114.115.119" >> $dns_resolv_conf
+	sudo cp $dns_resolv_conf ${dns_resolv_conf}.frequentlyUsed
+	cd $rootPath
+	sudo $rootPath/setup-dnsIp-client.sh
+
+#do some work to clean
+#	cd ..
+#	rm -rf ./dnsServer
+
+	exit
+fi
+
+#install dns server
+sudo $packageManagerInstallCommand bind 
+sudo $packageManagerInstallCommand bind-chroot 
+sudo $packageManagerInstallCommand caching-nameserver 
+sudo $packageManagerInstallCommand bind-utils 
+sudo $packageManagerInstallCommand bind-libs 
+
+#create path
+sudo mkdir -p $dns_dirctory
+sudo chmod -R 775 $dns_dirctory
+sudo mkdir -p $dns_chroot_path$dns_dirctory
+sudo cp -r /usr/share/doc/bind-*/sample/var/named/* $dns_chroot_path$dns_dirctory/ #copy examples
+sudo chmod -R 775 $dns_chroot_path$dns_dirctory
+sudo mkdir -p $dns_chroot_path/etc
+sudo chmod -R 775 $dns_chroot_path/etc
+
+
+sudo cp $dns_resolv_conf ${dns_resolv_conf}.backup
+sudo cp $dns_named_conf ${dns_named_conf}.backup
+sudo cp $dns_named_rfc ${dns_named_rfc}.backup
+##########################################################
+sudo cp $dns_resolv_conf $dns_chroot_path${dns_resolv_conf}.backup
+sudo cp $dns_named_conf $dns_chroot_path${dns_named_conf}.backup
+sudo cp $dns_named_rfc $dns_chroot_path${dns_named_rfc}.backup
+
+#insert
+sudo echo 'nameserver 114.114.114.114' >> $dns_resolv_conf
+sudo echo 'nameserver 114.114.115.119' >> $dns_resolv_conf
+sudo sed -i 2"idomain $domainName" $dns_resolv_conf
+sudo sed -i 3"isearch $domainName" $dns_resolv_conf
+###################################################
+sudo cp $dns_resolv_conf $dns_chroot_path${dns_resolv_conf}
+
+#find raw
+rawNum=$( cat -n $dns_named_conf | grep "directory 	\"/var/named\";" | awk 'NR==1{print $1}' )
+#increase raw number
+let rawNum++
+#insert content
+sudo sed -i $rawNum'i	forward first;' $dns_named_conf
+let rawNum++
+#insert content
+sudo sed -i $rawNum'i	forwarders 	{114.114.114.114;114.114.115.119;};' $dns_named_conf
+#increase raw number
+#let rawNum++
+#insert content
+#sudo sed -i $rawNum'i         forwarders 	{114.114.115.119;};' $dns_named_conf
+sudo sed -i 's# *listen-on port 53.*$#        listen-on port 53 { any; };#g' $dns_named_conf
+sudo sed -i 's# *listen-on-v6 port 53.*$#        //listen-on-v6 port 53 { ::1; };#g' $dns_named_conf
+sudo sed -i 's# *allow-query.*$#        allow-query     { any; };#g' $dns_named_conf
+sudo sed -i 's# *dnssec-enable.*$#        dnssec-enable no;#g' $dns_named_conf
+sudo sed -i 's# *dnssec-validation.*$#        dnssec-validation no;#g' $dns_named_conf
+##########################################################
+sudo cp $dns_named_conf $dns_chroot_path$dns_named_conf
+
+#insert
+sudo echo "zone \""$domainName"\" IN {" >> $dns_named_rfc
+sudo echo '        type master;' >> $dns_named_rfc
+sudo echo "        file \""$domainName.zone"\";" >> $dns_named_rfc
+sudo echo '        allow-update { none; };' >> $dns_named_rfc
+sudo echo '};' >> $dns_named_rfc
+sudo echo '' >> $dns_named_rfc
+sudo echo '' >> $dns_named_rfc
+sudo echo "zone \""$original_rev_zone_fileName"\" IN {" >> $dns_named_rfc
+sudo echo '        type master;' >> $dns_named_rfc
+sudo echo "        file \""$rev_zone_fileName"\";" >> $dns_named_rfc
+sudo echo '        allow-update { none; };' >> $dns_named_rfc
+sudo echo '};' >> $dns_named_rfc
+sudo echo '' >> $dns_named_rfc
+sudo echo '' >> $dns_named_rfc
+#########################################
+sudo cp $dns_named_rfc $dns_chroot_path$dns_named_rfc
+
+#create && backup
+sudo mkdir -p $dns_dirctory
+sudo cp $dns_local_path/$domainName.zone $dns_dirctory/$domainName.zone
+sudo cp $dns_local_path/$domainName.zone $dns_dirctory/$domainName.zone.backup
+sudo cp $dns_local_path/$rev_zone_fileName $dns_dirctory/$rev_zone_fileName
+sudo cp $dns_local_path/$rev_zone_fileName $dns_dirctory/$rev_zone_fileName.backup
+sudo chmod 640 $dns_dirctory/$domainName.zone
+sudo chgrp named $dns_dirctory/$domainName.zone
+sudo chmod 640 $dns_dirctory/$domainName.zone.backup
+sudo chgrp named $dns_dirctory/$domainName.zone.backup
+sudo chmod 640 $dns_dirctory/$rev_zone_fileName
+sudo chgrp named $dns_dirctory/$rev_zone_fileName
+sudo chmod 640 $dns_dirctory/$rev_zone_fileName.backup
+sudo chgrp named $dns_dirctory/$rev_zone_fileName.backup
+########################
+sudo mkdir -p $dns_chroot_path$dns_dirctory
+sudo cp $dns_local_path/$domainName.zone $dns_chroot_path$dns_dirctory/$domainName.zone
+sudo cp $dns_local_path/$domainName.zone $dns_chroot_path$dns_dirctory/$domainName.zone.backup
+sudo cp $dns_local_path/$rev_zone_fileName $dns_chroot_path$dns_dirctory/$rev_zone_fileName
+sudo cp $dns_local_path/$rev_zone_fileName $dns_chroot_path$dns_dirctory/$rev_zone_fileName.backup
+sudo chmod 640 $dns_chroot_path$dns_dirctory/$domainName.zone
+sudo chgrp named $dns_chroot_path$dns_dirctory/$domainName.zone
+sudo chmod 640 $dns_chroot_path$dns_dirctory/$domainName.zone.backup
+sudo chgrp named $dns_chroot_path$dns_dirctory/$domainName.zone.backup
+sudo chmod 640 $dns_chroot_path$dns_dirctory/$rev_zone_fileName
+sudo chgrp named $dns_chroot_path$dns_dirctory/$rev_zone_fileName
+sudo chmod 640 $dns_chroot_path$dns_dirctory/$rev_zone_fileName.backup
+sudo chgrp named $dns_chroot_path$dns_dirctory/$rev_zone_fileName.backup
+
+
+#createe bind dns related files into chrooted directory
+sudo mkdir -p $dns_chroot_path$dns_dirctory/data
+sudo chmod -R 777 $dns_chroot_path$dns_dirctory/data
+sudo touch $dns_chroot_path$dns_dirctory/data/cache_dump.db
+sudo touch $dns_chroot_path$dns_dirctory/data/named_stats.txt
+sudo touch $dns_chroot_path$dns_dirctory/data/named_mem_stats.txt
+sudo touch $dns_chroot_path$dns_dirctory/data/named.run
+sudo mkdir -p $dns_chroot_path$dns_dirctory/dynamic
+sudo chmod -R 777 $dns_chroot_path$dns_dirctory/dynamic
+sudo touch $dns_chroot_path$dns_dirctory/dynamic/managed-keys.bind
+
+
+
+#set permission
+sudo chmod 775 -R ${rootPath}
+sudo chmod 775 -R ${dns_chroot_path}
+sudo chmod -R 777 $dns_chroot_path$dns_dirctory/data
+sudo chmod -R 777 $dns_chroot_path$dns_dirctory/dynamic
+
+
+#launch when computer boot
+
+sudo  /usr/libexec/setup-named-chroot.sh /var/named/chroot on
+
+#stop firewall
+#For the version lower than CentOS7.0
+sudo service iptables stop	#stop firewall.
+sudo chkconfig iptables off #forbidden start firewall at every turn
+#For the version CentOS7.0 and above
+sudo systemctl stop firewalld.service	#stop firewall.
+sudo systemctl disable firewalld.service #forbidden start firewall at every turn
+
+
+#forlower then CentOS7.0
+sudo service named stop
+sudo chkconfig named off
+
+sudo chkconfig named-chroot on
+sudo service named-chroot start
+
+
+#for CentOS7.0 and above
+#####sudo systemctl start named.service
+sudo systemctl stop named
+sudo systemctl disable named
+#sudo systemctl start named
+#sudo systemctl enable named
+
+sudo systemctl start named-chroot
+sudo systemctl enable named-chroot
+sudo ln -s '/usr/lib/systemd/system/named-chroot.service' '/etc/systemd/system/multi-user.target.wants/named-chroot.service'
+
+sudo ./setup-dnsIp-server.sh
+#do some work to clean
+#	cd ..
+#	rm -rf ./dnsServer
+
+echo -e "\033[40;31mSetup complete!\033[0m"
